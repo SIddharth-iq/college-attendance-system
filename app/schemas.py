@@ -224,3 +224,26 @@ class MonthlyAttendanceReport(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# Phase 3.2 - Attendance Session V3 Schemas
+class AttendanceSessionV3Create(BaseModel):
+    """Schema for creating Phase 3.2 attendance session."""
+
+    subject_id: int
+    session_date: date
+
+
+class AttendanceSessionV3Response(BaseModel):
+    """Schema for Phase 3.2 attendance session response."""
+
+    id: int
+    subject_id: int
+    faculty_id: int
+    session_date: date
+    is_locked: bool
+    locked_at: Optional[datetime]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
