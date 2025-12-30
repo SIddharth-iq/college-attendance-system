@@ -363,3 +363,37 @@ class AttendanceRecord(BaseModel):
             name="uq_one_attendance_per_student_per_session",
         ),
     )
+
+
+class AttendanceSessionV3(BaseModel):
+    """
+    Phase 3.1 Attendance Session model.
+    Simplified attendance session with direct subject and faculty references.
+    """
+
+    __tablename__ = "attendance_sessions_v3"
+
+    subject_id = Column(
+        Integer,
+        ForeignKey("subjects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    faculty_id = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    session_date = Column(Date, nullable=False, index=True)
+    is_locked = Column(Boolean, default=False, nullable=False)
+    locked_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "subject_id",
+            "faculty_id",
+            "session_date",
+            name="uq_subject_faculty_date_v3",
+        ),
+    )
