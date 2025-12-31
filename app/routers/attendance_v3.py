@@ -76,3 +76,4 @@ def create_attendance_session_v3(
 
     return db_session
 
+
