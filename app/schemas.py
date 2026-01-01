@@ -247,3 +247,26 @@ class AttendanceSessionV3Response(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# Phase 3.2 - Attendance Record V3 Schemas
+class AttendanceRecordV3Create(BaseModel):
+    """Schema for creating Phase 3.2 attendance record."""
+
+    student_id: int
+    status: str  # "present", "absent", or "late"
+
+
+class AttendanceRecordV3Response(BaseModel):
+    """Schema for Phase 3.2 attendance record response."""
+
+    id: int
+    session_id: int
+    student_id: int
+    status: str
+    marked_by: Optional[int]
+    marked_at: datetime
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

@@ -397,3 +397,69 @@ class AttendanceSessionV3(BaseModel):
             name="uq_subject_faculty_date_v3",
         ),
     )
+
+    # Relationships
+    attendance_records_v3 = relationship(
+        "AttendanceRecordV3",
+        back_populates="session",
+        cascade="all, delete-orphan",
+    )
+
+
+class AttendanceStatusEnum(str, enum.Enum):
+    """Attendance status options for Phase 3.2."""
+
+    PRESENT = "present"
+    ABSENT = "absent"
+    LATE = "late"
+
+
+class AttendanceRecordV3(BaseModel):
+    """
+    Phase 3.2 Attendance Record model.
+    Individual student attendance entry for AttendanceSessionV3.
+    """
+
+    __tablename__ = "attendance_records_v3"
+
+    session_id = Column(
+        Integer,
+        ForeignKey("attendance_sessions_v3.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    student_id = Column(
+        Integer,
+        ForeignKey("students.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    status = Column(
+        Enum(AttendanceStatusEnum),
+        nullable=False,
+    )
+    marked_by = Column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    marked_at = Column(
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    # Relationships
+    session = relationship(
+        "AttendanceSessionV3", back_populates="attendance_records_v3"
+    )
+    student = relationship("Student")
+
+    # Unique constraint: one record per student per session
+    __table_args__ = (
+        UniqueConstraint(
+            "session_id",
+            "student_id",
+            name="uq_one_attendance_per_student_per_session_v3",
+        ),
+    )
