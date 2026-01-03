@@ -4,6 +4,7 @@ Provides read-only reporting endpoints for Attendance V3 data.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from pydantic import BaseModel
@@ -24,6 +25,10 @@ from app.models import (
     RoleEnum,
 )
 from app.routers.auth import require_role
+from app.services.reports_service import (
+    get_attendance_data_for_csv,
+    generate_csv_content,
+)
 
 router = APIRouter()
 
@@ -569,3 +574,58 @@ def get_defaulters_report(
             )
 
     return result
+
+
+@router.get("/export/csv", status_code=status.HTTP_200_OK)
+def export_attendance_csv(
+    subject_id: int = Query(..., description="Subject ID (required)"),
+    student_id: Optional[int] = Query(None, description="Student ID (optional filter)"),
+    start_date: Optional[date] = Query(
+        None, description="Start date filter (YYYY-MM-DD)"
+    ),
+    end_date: Optional[date] = Query(None, description="End date filter (YYYY-MM-DD)"),
+    current_user: User = Depends(require_role([RoleEnum.ADMIN, RoleEnum.FACULTY])),
+    db: Session = Depends(get_db),
+):
+    """
+    Export attendance report data in CSV format.
+    
+    Admin can export data for all faculty sessions.
+    Faculty can only export data for sessions they conducted.
+    
+    Example curl command:
+    curl -X GET "http://localhost:8000/api/v3/reports/export/csv?subject_id=1&student_id=1&start_date=2024-01-01&end_date=2024-12-31" \\
+      -H "Authorization: Bearer <token>" \\
+      -o attendance_report.csv
+    """
+    # 1️⃣ Validate subject exists BEFORE querying attendance
+    subject = db.query(Subject).filter(Subject.id == subject_id).first()
+    if not subject:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Subject not found",
+        )
+
+    # 2️⃣ Get attendance data using service with faculty access control
+    faculty_id = None
+    if current_user.role == RoleEnum.FACULTY:
+        faculty_id = current_user.id
+
+    records = get_attendance_data_for_csv(
+        db=db,
+        subject_id=subject_id,
+        student_id=student_id,
+        start_date=start_date,
+        end_date=end_date,
+        faculty_id=faculty_id,
+    )
+
+    # 3️⃣ Generate CSV content
+    csv_content = generate_csv_content(records)
+
+    # 4️⃣ Return CSV response
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="attendance_report.csv"'},
+    )
