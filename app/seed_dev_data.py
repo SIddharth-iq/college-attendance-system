@@ -9,6 +9,7 @@ from app.models import (
     AttendanceSessionV3,
     AttendanceRecordV3,
     AttendanceStatusEnum,
+    Student,
 )
 from passlib.context import CryptContext
 
@@ -95,6 +96,28 @@ def seed():
             "is_active": True,
         },
     )
+    # --------------------
+    # STUDENTS (DOMAIN TABLE)
+    # --------------------
+    student1_profile = get_or_create(
+        db,
+        Student,
+        user_id=student1.id,
+        student_id="STU001",
+        defaults={
+            "enrollment_date": date(2024, 6, 1),
+        },
+    )
+
+    student2_profile = get_or_create(
+        db,
+        Student,
+        user_id=student2.id,
+        student_id="STU002",
+        defaults={
+            "enrollment_date": date(2024, 6, 1),
+        },
+    )
 
     # --------------------
     # SUBJECTS
@@ -132,7 +155,7 @@ def seed():
         db,
         AttendanceRecordV3,
         session_id=session1.id,
-        student_id=student1.id,
+        student_id=student1_profile.id,
         defaults={"status": AttendanceStatusEnum.PRESENT},
     )
 
@@ -140,7 +163,7 @@ def seed():
         db,
         AttendanceRecordV3,
         session_id=session1.id,
-        student_id=student2.id,
+        student_id=student2_profile.id,
         defaults={"status": AttendanceStatusEnum.ABSENT},
     )
 

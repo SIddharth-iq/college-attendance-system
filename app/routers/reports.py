@@ -9,6 +9,10 @@ from sqlalchemy import func
 from pydantic import BaseModel
 from datetime import date
 from typing import Optional
+from app.models import User, Student, AttendanceRecordV3, AttendanceSessionV3
+from app.models import RoleEnum
+from sqlalchemy import func, distinct
+from sqlalchemy.sql.functions import user
 from app.database import get_db
 from app.models import (
     User,
@@ -304,55 +308,53 @@ def get_student_report(
 ):
     """
     Get simple attendance summary for a student.
-    Admin can access any student. Faculty can only access students from their own sessions.
+    Admin can access any student.
+    Faculty can only access students from their own sessions.
     """
-    # Verify student exists
-    student = db.query(Student).filter(Student.id == student_id).first()
+
+    # 1️⃣ Fetch Student + linked User
+    student = (
+        db.query(Student)
+        .join(User, Student.user_id == User.id)
+        .filter(Student.id == student_id)
+        .first()
+    )
+
     if not student:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Student not found",
-        )
+        raise HTTPException(status_code=404, detail="Student not found")
 
-    # Get student's user details for full_name
-    user = db.query(User).filter(User.id == student.user_id).first()
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found for this student",
-        )
+    user = student.user  # relationship-backed, clean, explicit
 
-    # Build base query for records
+    # 2️⃣ Build base attendance query
     records_query = (
         db.query(AttendanceRecordV3)
         .join(
-            AttendanceSessionV3, AttendanceRecordV3.session_id == AttendanceSessionV3.id
+            AttendanceSessionV3,
+            AttendanceRecordV3.session_id == AttendanceSessionV3.id,
         )
-        .filter(AttendanceRecordV3.student_id == student_id)
+        .filter(AttendanceRecordV3.student_id == student.id)
     )
 
-    # Apply subject filter if provided
+    # 3️⃣ Optional subject filter
     if subject_id:
         records_query = records_query.filter(
             AttendanceSessionV3.subject_id == subject_id
         )
 
-    # Enforce faculty access control: Faculty can only access their own sessions
+    # 4️⃣ Faculty access restriction
     if current_user.role == RoleEnum.FACULTY:
         records_query = records_query.filter(
             AttendanceSessionV3.faculty_id == current_user.id
         )
 
-    # Get all records for this student (with filters applied)
     all_records = records_query.all()
 
-    # If no records found, check if faculty is trying to access unauthorized student
+    # 5️⃣ Handle empty records safely
     if not all_records:
         if current_user.role == RoleEnum.FACULTY:
-            # Check if student has records but not from this faculty's sessions
             any_record = (
                 db.query(AttendanceRecordV3)
-                .filter(AttendanceRecordV3.student_id == student_id)
+                .filter(AttendanceRecordV3.student_id == student.id)
                 .first()
             )
             if any_record:
@@ -360,7 +362,7 @@ def get_student_report(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail="You can only access students from your own sessions",
                 )
-        # Return empty summary if no records
+
         return StudentReportResponse(
             student_id=student.id,
             student_code=student.student_id,
@@ -372,28 +374,19 @@ def get_student_report(
             attendance_percentage=0.0,
         )
 
-    # Count total distinct sessions
-    session_ids = list(set([r.session_id for r in all_records]))
+    # 6️⃣ Aggregate stats
+    session_ids = {r.session_id for r in all_records}
     total_sessions = len(session_ids)
 
-    # Count records by status
-    present_count = sum(
-        1 for r in all_records if r.status == AttendanceStatusEnum.PRESENT
-    )
-    absent_count = sum(
-        1 for r in all_records if r.status == AttendanceStatusEnum.ABSENT
-    )
-    late_count = sum(1 for r in all_records if r.status == AttendanceStatusEnum.LATE)
+    present_count = sum(r.status == AttendanceStatusEnum.PRESENT for r in all_records)
+    absent_count = sum(r.status == AttendanceStatusEnum.ABSENT for r in all_records)
+    late_count = sum(r.status == AttendanceStatusEnum.LATE for r in all_records)
 
-    # Calculate attendance percentage: (present_count + late_count) / total_sessions * 100
-    if total_sessions > 0:
-        attendance_percentage = round(
-            ((present_count + late_count) / total_sessions) * 100, 2
-        )
-    else:
-        attendance_percentage = 0.0
+    attendance_percentage = round(
+        ((present_count + late_count) / total_sessions) * 100, 2
+    )
 
-    # Build response
+    # 7️⃣ Final response
     return StudentReportResponse(
         student_id=student.id,
         student_code=student.student_id,

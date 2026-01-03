@@ -14,7 +14,9 @@ from datetime import datetime, timedelta
 from jose import jwt, JWTError
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
-import hashlib  # Simple password hashing (use bcrypt in production)
+from passlib.context import (
+    CryptContext,
+)  # Simple password hashing (use bcrypt in production)
 
 router = APIRouter()
 security = HTTPBearer()
@@ -36,20 +38,15 @@ class TokenResponse(BaseModel):
     token_type: str = "Bearer"
 
 
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
 def hash_password(password: str) -> str:
-    """
-    Hash password using SHA256 (simple implementation).
-    NOTE: In production, use bcrypt or argon2 for secure password hashing.
-    """
-    return hashlib.sha256(password.encode()).hexdigest()
+    return pwd_context.hash(password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """
-    Verify password against hash.
-    NOTE: In production, use bcrypt or argon2 verification.
-    """
-    return hash_password(plain_password) == hashed_password
+    return pwd_context.verify(plain_password, hashed_password)
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
