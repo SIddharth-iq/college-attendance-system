@@ -81,6 +81,27 @@ class StudentReportResponse(BaseModel):
         from_attributes = True
 
 
+class DefaulterReportResponse(BaseModel):
+    """
+    Response schema for defaulter report endpoint.
+
+    Note: student_id is the internal database ID (primary key),
+    while student_code is the external student identifier (e.g., "STU2024001").
+    """
+
+    student_id: int
+    student_code: str
+    full_name: str
+    total_sessions: int
+    present_count: int
+    absent_count: int
+    late_count: int
+    attendance_percentage: float
+
+    class Config:
+        from_attributes = True
+
+
 @router.get("/session/{session_id}", status_code=status.HTTP_200_OK)
 def get_session_report(
     session_id: int,
@@ -397,3 +418,154 @@ def get_student_report(
         late_count=late_count,
         attendance_percentage=attendance_percentage,
     )
+
+
+@router.get("/defaulters/{subject_id}", status_code=status.HTTP_200_OK)
+def get_defaulters_report(
+    subject_id: int,
+    min_percentage: float = Query(
+        75.0, description="Minimum attendance percentage threshold"
+    ),
+    current_user: User = Depends(require_role([RoleEnum.ADMIN, RoleEnum.FACULTY])),
+    db: Session = Depends(get_db),
+):
+    """
+    Get list of students with attendance percentage below the minimum threshold for a subject.
+    Admin can view defaulters for all faculty sessions.
+    Faculty can only view defaulters for sessions they conducted.
+    """
+    # 1️⃣ Verify subject exists
+    subject = db.query(Subject).filter(Subject.id == subject_id).first()
+    if not subject:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Subject not found",
+        )
+
+    # 2️⃣ Build base query for attendance records
+    records_query = (
+        db.query(AttendanceRecordV3)
+        .join(
+            AttendanceSessionV3,
+            AttendanceRecordV3.session_id == AttendanceSessionV3.id,
+        )
+        .filter(AttendanceSessionV3.subject_id == subject_id)
+    )
+
+    # Enforce faculty access control: Faculty can only access their own sessions
+    if current_user.role == RoleEnum.FACULTY:
+        records_query = records_query.filter(
+            AttendanceSessionV3.faculty_id == current_user.id
+        )
+
+    # 3️⃣ Fetch all matching records
+    all_records = records_query.all()
+
+    # 4️⃣ Handle empty records - check for unauthorized access
+    if not all_records:
+        if current_user.role == RoleEnum.FACULTY:
+            # Check if subject has sessions by other faculty
+            any_session = (
+                db.query(AttendanceSessionV3)
+                .filter(AttendanceSessionV3.subject_id == subject_id)
+                .first()
+            )
+            if any_session:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You can only access subjects where you have created sessions",
+                )
+        # Return empty list if no records (valid response)
+        return []
+
+    # 5️⃣ Aggregate records by student using clean Python aggregation
+    student_stats = {}
+    for record in all_records:
+        student_id = record.student_id
+        if student_id not in student_stats:
+            student_stats[student_id] = {
+                "session_ids": set(),  # Use set for distinct session counting
+                "present_count": 0,
+                "absent_count": 0,
+                "late_count": 0,
+            }
+        student_stats[student_id]["session_ids"].add(record.session_id)
+        # Count statuses
+        if record.status == AttendanceStatusEnum.PRESENT:
+            student_stats[student_id]["present_count"] += 1
+        elif record.status == AttendanceStatusEnum.ABSENT:
+            student_stats[student_id]["absent_count"] += 1
+        elif record.status == AttendanceStatusEnum.LATE:
+            student_stats[student_id]["late_count"] += 1
+
+    # 6️⃣ Calculate attendance percentages and filter defaulters
+    defaulter_ids = []
+    defaulter_data = {}
+
+    for student_id, stats in student_stats.items():
+        total_sessions = len(stats["session_ids"])
+        present_count = stats["present_count"]
+        absent_count = stats["absent_count"]
+        late_count = stats["late_count"]
+
+        # Calculate attendance percentage (handle division by zero)
+        if total_sessions > 0:
+            attendance_percentage = round(
+                ((present_count + late_count) / total_sessions) * 100, 2
+            )
+        else:
+            # If no sessions, skip (shouldn't happen, but handle gracefully)
+            continue
+
+        # Filter students below min_percentage
+        if attendance_percentage < min_percentage:
+            defaulter_ids.append(student_id)
+            defaulter_data[student_id] = {
+                "total_sessions": total_sessions,
+                "present_count": present_count,
+                "absent_count": absent_count,
+                "late_count": late_count,
+                "attendance_percentage": attendance_percentage,
+            }
+
+    # 7️⃣ Return empty list if no defaulters found
+    if not defaulter_ids:
+        return []
+
+    # 8️⃣ Enrich with Student and User data in single query
+    students = (
+        db.query(Student)
+        .join(User, Student.user_id == User.id)
+        .filter(Student.id.in_(defaulter_ids))
+        .all()
+    )
+
+    # Create mapping for student/user data
+    student_info_map = {
+        student.id: {
+            "student_code": student.student_id,  # External identifier
+            "full_name": student.user.full_name,
+        }
+        for student in students
+    }
+
+    # 9️⃣ Build response list
+    result = []
+    for student_id in defaulter_ids:
+        if student_id in student_info_map:
+            result.append(
+                DefaulterReportResponse(
+                    student_id=student_id,  # Internal database ID
+                    student_code=student_info_map[student_id]["student_code"],
+                    full_name=student_info_map[student_id]["full_name"],
+                    total_sessions=defaulter_data[student_id]["total_sessions"],
+                    present_count=defaulter_data[student_id]["present_count"],
+                    absent_count=defaulter_data[student_id]["absent_count"],
+                    late_count=defaulter_data[student_id]["late_count"],
+                    attendance_percentage=defaulter_data[student_id][
+                        "attendance_percentage"
+                    ],
+                )
+            )
+
+    return result

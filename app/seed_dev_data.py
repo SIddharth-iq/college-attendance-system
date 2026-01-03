@@ -147,6 +147,14 @@ def seed():
         session_date=date(2026, 1, 1),
         defaults={"is_locked": True},
     )
+    session2 = get_or_create(
+        db,
+        AttendanceSessionV3,
+        subject_id=subject1.id,  # SAME subject
+        faculty_id=faculty1.id,  # SAME faculty
+        session_date=date(2026, 1, 2),  # DIFFERENT date
+        defaults={"is_locked": True},
+    )
 
     # --------------------
     # ATTENDANCE RECORDS
@@ -163,6 +171,22 @@ def seed():
         db,
         AttendanceRecordV3,
         session_id=session1.id,
+        student_id=student2_profile.id,
+        defaults={"status": AttendanceStatusEnum.ABSENT},
+    )
+    # Session 2 attendance
+    get_or_create(
+        db,
+        AttendanceRecordV3,
+        session_id=session2.id,
+        student_id=student1_profile.id,
+        defaults={"status": AttendanceStatusEnum.PRESENT},
+    )
+
+    get_or_create(
+        db,
+        AttendanceRecordV3,
+        session_id=session2.id,
         student_id=student2_profile.id,
         defaults={"status": AttendanceStatusEnum.ABSENT},
     )
