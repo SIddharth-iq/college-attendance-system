@@ -25,6 +25,7 @@ from app.schemas import (
     AttendanceSessionV3Response,
     AttendanceRecordV3Create,
     AttendanceRecordV3Response,
+    SessionStudentAttendanceV3Response,
 )
 from app.routers.auth import require_role, RoleEnum
 
@@ -272,3 +273,81 @@ def list_attendance_sessions_v3(
     ).all()
 
     return sessions
+
+
+# -------------------------------------------------------------------
+# GET SESSION STUDENTS WITH ATTENDANCE
+# -------------------------------------------------------------------
+@router.get(
+    "/sessions/{session_id}/students",
+    response_model=List[SessionStudentAttendanceV3Response],
+    status_code=status.HTTP_200_OK,
+)
+def get_session_students_v3(
+    session_id: int,
+    current_user: User = Depends(require_role([RoleEnum.FACULTY, RoleEnum.ADMIN])),
+    db: Session = Depends(get_db),
+):
+    """
+    Get all students enrolled in the session's subject with their attendance status.
+    FACULTY can only access their own sessions.
+    ADMIN can access any session.
+    """
+    # Fetch session
+    session = (
+        db.query(AttendanceSessionV3)
+        .filter(AttendanceSessionV3.id == session_id)
+        .first()
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Attendance session not found")
+
+    # Authorization check
+    if current_user.role == RoleEnum.FACULTY and session.faculty_id != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="You are not allowed to access this session",
+        )
+
+    # Query students enrolled in the session's subject
+    # Join: Student -> ClassEnrollment -> ClassSubject -> User
+    # Left join: AttendanceRecordV3
+    query = (
+        db.query(
+            Student.id.label("student_id"),
+            Student.student_id.label("student_code"),
+            User.full_name.label("student_name"),
+            AttendanceRecordV3.status.label("attendance_status"),
+            AttendanceRecordV3.marked_at.label("marked_at"),
+        )
+        .join(ClassEnrollment, ClassEnrollment.student_id == Student.id)
+        .join(ClassSubject, ClassSubject.class_id == ClassEnrollment.class_id)
+        .join(User, User.id == Student.user_id)
+        .outerjoin(
+            AttendanceRecordV3,
+            and_(
+                AttendanceRecordV3.student_id == Student.id,
+                AttendanceRecordV3.session_id == session_id,
+            ),
+        )
+        .filter(ClassSubject.subject_id == session.subject_id)
+        .distinct()
+        .order_by(User.full_name.asc())
+    )
+
+    results = query.all()
+
+    # Map results to response schema
+    students = []
+    for row in results:
+        students.append(
+            SessionStudentAttendanceV3Response(
+                student_id=row.student_id,
+                student_code=row.student_code,
+                student_name=row.student_name,
+                attendance_status=row.attendance_status,
+                marked_at=row.marked_at,
+            )
+        )
+
+    return students

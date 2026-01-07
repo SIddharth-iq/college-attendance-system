@@ -6,7 +6,7 @@ Defines data structures for API endpoints.
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
 from datetime import date, datetime
-from app.models import RoleEnum
+from app.models import RoleEnum, AttendanceStatusEnum
 from sqlalchemy.exc import IntegrityError
 
 
@@ -267,6 +267,20 @@ class AttendanceRecordV3Response(BaseModel):
     marked_by: Optional[int]
     marked_at: datetime
     created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# Phase 3.2 - Session Student Attendance Response
+class SessionStudentAttendanceV3Response(BaseModel):
+    """Schema for session student attendance response."""
+
+    student_id: int
+    student_code: str
+    student_name: str
+    attendance_status: Optional[AttendanceStatusEnum]
+    marked_at: Optional[datetime]
 
     class Config:
         from_attributes = True
