@@ -284,3 +284,18 @@ class SessionStudentAttendanceV3Response(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# Phase 3.2 - Student Own Attendance Record Response
+class StudentAttendanceRecordV3Response(BaseModel):
+    """Schema for student's own attendance record response."""
+
+    id: int
+    session_id: int
+    session_date: date
+    subject_id: int
+    status: str
+    marked_at: datetime
+
+    class Config:
+        from_attributes = True

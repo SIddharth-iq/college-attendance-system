@@ -26,6 +26,7 @@ from app.schemas import (
     AttendanceRecordV3Create,
     AttendanceRecordV3Response,
     SessionStudentAttendanceV3Response,
+    StudentAttendanceRecordV3Response,
 )
 from app.routers.auth import require_role, RoleEnum
 
@@ -351,3 +352,64 @@ def get_session_students_v3(
         )
 
     return students
+
+
+# -------------------------------------------------------------------
+# Student self-service endpoints
+# -------------------------------------------------------------------
+@router.get(
+    "/students/me/attendance",
+    response_model=List[StudentAttendanceRecordV3Response],
+    status_code=status.HTTP_200_OK,
+)
+def get_my_attendance_v3(
+    current_user: User = Depends(require_role([RoleEnum.STUDENT])),
+    db: Session = Depends(get_db),
+):
+    """
+    Get attendance records for the authenticated student.
+    Only STUDENT role is allowed.
+    """
+    # Get student profile
+    student = db.query(Student).filter(Student.user_id == current_user.id).first()
+    if not student:
+        raise HTTPException(
+            status_code=404,
+            detail="Student profile not found",
+        )
+
+    # Query attendance records with session information
+    query = (
+        db.query(
+            AttendanceRecordV3.id,
+            AttendanceRecordV3.session_id,
+            AttendanceSessionV3.session_date,
+            AttendanceSessionV3.subject_id,
+            AttendanceRecordV3.status,
+            AttendanceRecordV3.marked_at,
+        )
+        .join(
+            AttendanceSessionV3,
+            AttendanceSessionV3.id == AttendanceRecordV3.session_id,
+        )
+        .filter(AttendanceRecordV3.student_id == student.id)
+        .order_by(AttendanceSessionV3.session_date.desc())
+    )
+
+    results = query.all()
+
+    # Map results to response schema
+    records = []
+    for row in results:
+        records.append(
+            StudentAttendanceRecordV3Response(
+                id=row.id,
+                session_id=row.session_id,
+                session_date=row.session_date,
+                subject_id=row.subject_id,
+                status=row.status.value,
+                marked_at=row.marked_at,
+            )
+        )
+
+    return records
