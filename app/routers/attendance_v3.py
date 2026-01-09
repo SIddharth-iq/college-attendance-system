@@ -5,7 +5,7 @@ Handles attendance sessions using AttendanceSessionV3 model.
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy import and_, func, case
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from typing import List
@@ -19,6 +19,7 @@ from app.models import (
     Student,
     ClassEnrollment,
     ClassSubject,
+    FacultyAssignment,
 )
 from app.schemas import (
     AttendanceSessionV3Create,
@@ -27,6 +28,7 @@ from app.schemas import (
     AttendanceRecordV3Response,
     SessionStudentAttendanceV3Response,
     StudentAttendanceRecordV3Response,
+    SubjectAttendanceSummaryV3Response,
 )
 from app.routers.auth import require_role, RoleEnum
 
@@ -413,3 +415,175 @@ def get_my_attendance_v3(
         )
 
     return records
+
+
+# -------------------------------------------------------------------
+# Faculty summary endpoints
+# -------------------------------------------------------------------
+@router.get(
+    "/subjects/{subject_id}/attendance-summary",
+    response_model=List[SubjectAttendanceSummaryV3Response],
+    status_code=status.HTTP_200_OK,
+)
+def get_subject_attendance_summary_v3(
+    subject_id: int,
+    current_user: User = Depends(require_role([RoleEnum.FACULTY, RoleEnum.ADMIN])),
+    db: Session = Depends(get_db),
+):
+    """
+    Get attendance summary for all students enrolled in a subject.
+    FACULTY can only access subjects they are assigned to or own sessions for.
+    ADMIN can access any subject.
+    """
+
+    # 1. Validate subject exists
+    subject = db.query(Subject).filter(Subject.id == subject_id).first()
+    if not subject:
+        raise HTTPException(status_code=404, detail="Subject not found")
+
+    # 2. Authorization flags
+    has_owned_sessions = False
+    has_assignment = False
+
+    if current_user.role == RoleEnum.FACULTY:
+        has_owned_sessions = (
+            db.query(AttendanceSessionV3.id)
+            .filter(
+                AttendanceSessionV3.subject_id == subject_id,
+                AttendanceSessionV3.faculty_id == current_user.id,
+            )
+            .first()
+            is not None
+        )
+
+        has_assignment = (
+            db.query(FacultyAssignment.id)
+            .join(
+                ClassSubject,
+                ClassSubject.id == FacultyAssignment.class_subject_id,
+            )
+            .filter(
+                FacultyAssignment.faculty_id == current_user.id,
+                ClassSubject.subject_id == subject_id,
+            )
+            .first()
+            is not None
+        )
+
+        if not has_owned_sessions and not has_assignment:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+    # 3. Determine visibility scope
+    use_own_sessions_scope = (
+        current_user.role == RoleEnum.FACULTY and has_owned_sessions
+    )
+
+    # 4. Compute total_sessions (scalar, authoritative)
+    total_sessions_query = db.query(
+        func.count(func.distinct(AttendanceSessionV3.id))
+    ).filter(AttendanceSessionV3.subject_id == subject_id)
+
+    if use_own_sessions_scope:
+        total_sessions_query = total_sessions_query.filter(
+            AttendanceSessionV3.faculty_id == current_user.id
+        )
+
+    total_sessions = total_sessions_query.scalar() or 0
+
+    # 5. Build session join condition (CRITICAL FIX)
+    session_join_condition = AttendanceSessionV3.subject_id == subject_id
+
+    if use_own_sessions_scope:
+        session_join_condition = and_(
+            AttendanceSessionV3.subject_id == subject_id,
+            AttendanceSessionV3.faculty_id == current_user.id,
+        )
+
+    # 6. Main grouped query (LEFT JOIN sessions)
+    query = (
+        db.query(
+            Student.id.label("student_id"),
+            Student.student_id.label("student_code"),
+            User.full_name.label("student_name"),
+            func.count(
+                func.distinct(
+                    case(
+                        (
+                            AttendanceRecordV3.status == AttendanceStatusEnum.PRESENT,
+                            AttendanceRecordV3.id,
+                        ),
+                        else_=None,
+                    )
+                )
+            ).label("present_count"),
+            func.count(
+                func.distinct(
+                    case(
+                        (
+                            AttendanceRecordV3.status == AttendanceStatusEnum.ABSENT,
+                            AttendanceRecordV3.id,
+                        ),
+                        else_=None,
+                    )
+                )
+            ).label("absent_count"),
+            func.count(
+                func.distinct(
+                    case(
+                        (
+                            AttendanceRecordV3.status == AttendanceStatusEnum.LATE,
+                            AttendanceRecordV3.id,
+                        ),
+                        else_=None,
+                    )
+                )
+            ).label("late_count"),
+        )
+        .join(ClassEnrollment, ClassEnrollment.student_id == Student.id)
+        .join(ClassSubject, ClassSubject.class_id == ClassEnrollment.class_id)
+        .join(User, User.id == Student.user_id)
+        .outerjoin(
+            AttendanceSessionV3,
+            session_join_condition,
+        )
+        .outerjoin(
+            AttendanceRecordV3,
+            and_(
+                AttendanceRecordV3.student_id == Student.id,
+                AttendanceRecordV3.session_id == AttendanceSessionV3.id,
+            ),
+        )
+        .filter(ClassSubject.subject_id == subject_id)
+        .group_by(Student.id, Student.student_id, User.full_name)
+        .order_by(User.full_name.asc())
+    )
+
+    results = query.all()
+
+    # 7. Map results
+    summaries = []
+    for row in results:
+        present_count = row.present_count or 0
+        absent_count = row.absent_count or 0
+        late_count = row.late_count or 0
+
+        attendance_percentage = (
+            round((present_count / total_sessions) * 100, 2)
+            if total_sessions > 0
+            else 0.0
+        )
+
+        summaries.append(
+            SubjectAttendanceSummaryV3Response(
+                student_id=row.student_id,
+                student_code=row.student_code,
+                student_name=row.student_name,
+                total_sessions=total_sessions,
+                present_count=present_count,
+                absent_count=absent_count,
+                late_count=late_count,
+                attendance_percentage=attendance_percentage,
+            )
+        )
+
+    return summaries

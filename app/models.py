@@ -21,6 +21,7 @@ from sqlalchemy.sql import func
 from sqlalchemy.sql.functions import current_user
 from app.database import Base
 import enum
+from datetime import date
 from datetime import datetime
 from sqlalchemy import UniqueConstraint
 
@@ -232,7 +233,13 @@ class FacultyAssignment(BaseModel):
     class_subject = relationship("ClassSubject", back_populates="faculty_assignments")
 
     # Unique constraint: same faculty can't be assigned twice to same class-subject
-    __table_args__ = ({"mysql_engine": "InnoDB"},)
+    __table_args__ = (
+        UniqueConstraint(
+            "faculty_id",
+            "class_subject_id",
+            name="uq_faculty_class_subject",
+        ),
+    )
 
 
 class ClassEnrollment(BaseModel):
@@ -255,7 +262,7 @@ class ClassEnrollment(BaseModel):
         nullable=False,
         index=True,
     )
-    enrollment_date = Column(Date, nullable=False, default=func.curdate())
+    enrollment_date = Column(Date, nullable=False, default=date.today)
 
     # Relationships
     student = relationship("Student", back_populates="class_enrollments")

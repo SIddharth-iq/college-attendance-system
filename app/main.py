@@ -6,17 +6,8 @@ College Attendance Management System
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import engine, Base
-from app.routers import auth, admin, attendance, attendance_v3, reports
-from app import models
 from app.database import init_db
-
-print("MODELS LOADED:", Base.metadata.tables.keys())
-
-# --------------------------------------------------
-# Create database tables (DEV only)
-# --------------------------------------------------
-
+from app.routers import auth, admin, attendance_v3, reports
 
 # --------------------------------------------------
 # Initialize FastAPI app
@@ -28,6 +19,9 @@ app = FastAPI(
 )
 
 
+# --------------------------------------------------
+# Startup
+# --------------------------------------------------
 @app.on_event("startup")
 def on_startup():
     init_db()
@@ -46,7 +40,7 @@ app.add_middleware(
 
 
 # --------------------------------------------------
-# Root & Health Endpoints
+# Root & Health
 # --------------------------------------------------
 @app.get("/")
 async def root():
@@ -63,20 +57,21 @@ async def health_check():
 
 
 # --------------------------------------------------
-# Register Routers
+# ROUTERS (ONLY ONE ATTENDANCE SYSTEM)
 # --------------------------------------------------
-print("🚀 main.py loaded")
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
-print("🚀 auth.router loaded")
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
-print("🚀 admin.router loaded")
-app.include_router(attendance.router, prefix="/api/attendance", tags=["Attendance"])
-print("🚀 attendance.router loaded")
+
+# ✅ V3 ATTENDANCE (ONLY)
 app.include_router(
-    attendance_v3.router, prefix="/api/v3/attendance", tags=["Attendance V3"]
+    attendance_v3.router,
+    prefix="/api/v3/attendance",
+    tags=["Attendance V3"],
 )
-print("🚀 attendance_v3.router loaded")
+
+# ✅ V3 REPORTS
 app.include_router(
-    reports.router, prefix="/api/v3/reports", tags=["Reports V3"]
+    reports.router,
+    prefix="/api/v3/reports",
+    tags=["Reports V3"],
 )
-print("🚀 reports.router loaded")

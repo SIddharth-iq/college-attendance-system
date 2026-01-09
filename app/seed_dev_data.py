@@ -10,6 +10,10 @@ from app.models import (
     AttendanceRecordV3,
     AttendanceStatusEnum,
     Student,
+    Class,
+    ClassSubject,
+    ClassEnrollment,
+    FacultyAssignment,
 )
 from passlib.context import CryptContext
 
@@ -72,6 +76,17 @@ def seed():
             "is_active": True,
         },
     )
+    faculty3 = get_or_create(
+        db,
+        User,
+        email="faculty3@college.com",
+        defaults={
+            "full_name": "Faculty Three",
+            "password_hash": hash_password("faculty123"),
+            "role": RoleEnum.FACULTY,
+            "is_active": True,
+        },
+    )
 
     student1 = get_or_create(
         db,
@@ -91,6 +106,17 @@ def seed():
         email="student2@college.com",
         defaults={
             "full_name": "Student Two",
+            "password_hash": hash_password("student123"),
+            "role": RoleEnum.STUDENT,
+            "is_active": True,
+        },
+    )
+    student3 = get_or_create(
+        db,
+        User,
+        email="student3@college.com",
+        defaults={
+            "full_name": "Student Three",
             "password_hash": hash_password("student123"),
             "role": RoleEnum.STUDENT,
             "is_active": True,
@@ -118,6 +144,15 @@ def seed():
             "enrollment_date": date(2024, 6, 1),
         },
     )
+    student3_profile = get_or_create(
+        db,
+        Student,
+        user_id=student3.id,
+        student_id="STU003",
+        defaults={
+            "enrollment_date": date(2024, 6, 1),
+        },
+    )
 
     # --------------------
     # SUBJECTS
@@ -135,6 +170,71 @@ def seed():
         code="CS102",
         defaults={"name": "Data Structures"},
     )
+    # --------------------
+    # CLASSES
+    # --------------------
+    class_2a = get_or_create(
+        db,
+        Class,
+        code="CSE2A",
+        defaults={
+            "name": "CSE 2nd Year - Section A",
+            "academic_year": "2025-2026",
+        },
+    )
+
+    # --------------------
+    # CLASS-SUBJECT MAPPING
+    # --------------------
+    class_subject_cs101 = get_or_create(
+        db,
+        ClassSubject,
+        class_id=class_2a.id,
+        subject_id=subject1.id,
+    )
+
+    # --------------------
+    # FACULTY ASSIGNMENTS
+    # --------------------
+    get_or_create(
+        db,
+        FacultyAssignment,
+        faculty_id=faculty1.id,
+        class_subject_id=class_subject_cs101.id,
+    )
+    # --------------------
+    # CLASS-SUBJECT MAPPING for CS102 (Data Structures)
+    # --------------------
+    class_subject_cs102 = get_or_create(
+        db,
+        ClassSubject,
+        class_id=class_2a.id,
+        subject_id=subject2.id,
+    )
+    # --------------------
+    get_or_create(
+        db,
+        FacultyAssignment,
+        faculty_id=faculty2.id,
+        class_subject_id=class_subject_cs102.id,
+    )
+
+    # --------------------
+    # CLASS ENROLLMENTS
+    # --------------------
+    get_or_create(
+        db,
+        ClassEnrollment,
+        student_id=student1_profile.id,
+        class_id=class_2a.id,
+    )
+
+    get_or_create(
+        db,
+        ClassEnrollment,
+        student_id=student2_profile.id,
+        class_id=class_2a.id,
+    )
 
     # --------------------
     # ATTENDANCE SESSION
@@ -147,6 +247,7 @@ def seed():
         session_date=date(2026, 1, 1),
         defaults={"is_locked": True},
     )
+
     session2 = get_or_create(
         db,
         AttendanceSessionV3,
@@ -157,7 +258,7 @@ def seed():
     )
 
     # --------------------
-    # ATTENDANCE RECORDS
+    # ATTENDANCE RECORDS FOR SESSION1 & SESSION2
     # --------------------
     get_or_create(
         db,
@@ -174,7 +275,7 @@ def seed():
         student_id=student2_profile.id,
         defaults={"status": AttendanceStatusEnum.ABSENT},
     )
-    # Session 2 attendance
+
     get_or_create(
         db,
         AttendanceRecordV3,
@@ -187,6 +288,36 @@ def seed():
         db,
         AttendanceRecordV3,
         session_id=session2.id,
+        student_id=student2_profile.id,
+        defaults={"status": AttendanceStatusEnum.ABSENT},
+    )
+    # --------------------
+    # ATTENDANCE SESSION FOR DATA STRUCTURES (SUBJECT2)
+    # --------------------
+    session3 = get_or_create(
+        db,
+        AttendanceSessionV3,
+        subject_id=subject2.id,
+        faculty_id=faculty3.id,  # assigned faculty who previously had no sessions
+        session_date=date(2026, 1, 3),
+        defaults={"is_locked": True},
+    )
+
+    # --------------------
+    # ATTENDANCE RECORDS FOR SESSION3
+    # --------------------
+    get_or_create(
+        db,
+        AttendanceRecordV3,
+        session_id=session3.id,
+        student_id=student1_profile.id,
+        defaults={"status": AttendanceStatusEnum.PRESENT},
+    )
+
+    get_or_create(
+        db,
+        AttendanceRecordV3,
+        session_id=session3.id,
         student_id=student2_profile.id,
         defaults={"status": AttendanceStatusEnum.ABSENT},
     )

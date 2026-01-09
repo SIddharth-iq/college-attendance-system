@@ -286,6 +286,23 @@ class SessionStudentAttendanceV3Response(BaseModel):
         from_attributes = True
 
 
+# Phase 3.2 - Subject Attendance Summary Response
+class SubjectAttendanceSummaryV3Response(BaseModel):
+    """Schema for subject attendance summary response."""
+
+    student_id: int
+    student_code: str
+    student_name: str
+    total_sessions: int
+    present_count: int
+    absent_count: int
+    late_count: int
+    attendance_percentage: float
+
+    class Config:
+        from_attributes = True
+
+
 # Phase 3.2 - Student Own Attendance Record Response
 class StudentAttendanceRecordV3Response(BaseModel):
     """Schema for student's own attendance record response."""
