@@ -437,69 +437,52 @@ def get_subject_attendance_summary_v3(
     """
 
     # 1. Validate subject exists
+    # 1. Validate subject exists
     subject = db.query(Subject).filter(Subject.id == subject_id).first()
     if not subject:
         raise HTTPException(status_code=404, detail="Subject not found")
 
-    # 2. Authorization flags
-    has_owned_sessions = False
-    has_assignment = False
+    # 2. Authorization (FACULTY must own at least one session)
+    # FACULTY must own at least one session for this subject
 
     if current_user.role == RoleEnum.FACULTY:
-        has_owned_sessions = (
+        owns_sessions = (
             db.query(AttendanceSessionV3.id)
             .filter(
                 AttendanceSessionV3.subject_id == subject_id,
                 AttendanceSessionV3.faculty_id == current_user.id,
             )
             .first()
-            is not None
         )
 
-        has_assignment = (
-            db.query(FacultyAssignment.id)
-            .join(
-                ClassSubject,
-                ClassSubject.id == FacultyAssignment.class_subject_id,
+        if not owns_sessions:
+            raise HTTPException(
+                status_code=403,
+                detail="No attendance sessions owned for this subject",
             )
-            .filter(
-                FacultyAssignment.faculty_id == current_user.id,
-                ClassSubject.subject_id == subject_id,
-            )
-            .first()
-            is not None
-        )
 
-        if not has_owned_sessions and not has_assignment:
-            raise HTTPException(status_code=403, detail="Access denied")
-
-    # 3. Determine visibility scope
-    use_own_sessions_scope = (
-        current_user.role == RoleEnum.FACULTY and has_owned_sessions
-    )
-
-    # 4. Compute total_sessions (scalar, authoritative)
+    # 3. Compute total_sessions (authoritative denominator)
     total_sessions_query = db.query(
         func.count(func.distinct(AttendanceSessionV3.id))
     ).filter(AttendanceSessionV3.subject_id == subject_id)
 
-    if use_own_sessions_scope:
+    if current_user.role == RoleEnum.FACULTY:
         total_sessions_query = total_sessions_query.filter(
             AttendanceSessionV3.faculty_id == current_user.id
         )
 
     total_sessions = total_sessions_query.scalar() or 0
 
-    # 5. Build session join condition (CRITICAL FIX)
+    # 4. Build session join condition
     session_join_condition = AttendanceSessionV3.subject_id == subject_id
 
-    if use_own_sessions_scope:
+    if current_user.role == RoleEnum.FACULTY:
         session_join_condition = and_(
             AttendanceSessionV3.subject_id == subject_id,
             AttendanceSessionV3.faculty_id == current_user.id,
         )
 
-    # 6. Main grouped query (LEFT JOIN sessions)
+    # 5. Aggregation query
     query = (
         db.query(
             Student.id.label("student_id"),
@@ -560,7 +543,7 @@ def get_subject_attendance_summary_v3(
 
     results = query.all()
 
-    # 7. Map results
+    # 6. Map response
     summaries = []
     for row in results:
         present_count = row.present_count or 0
@@ -587,3 +570,19 @@ def get_subject_attendance_summary_v3(
         )
 
     return summaries
+
+
+# NOTE:
+# Attendance sessions are intentionally non-deletable.
+# Incorrect sessions must be corrected by creating a new session.
+# Deletion / cancellation will be handled in a future phase with audit support.
+
+# TODO (DATA-INTEGRITY):
+# This endpoint derives students from current subject enrollment.
+# If enrollments change after session creation,
+# historical session views may become inconsistent.
+# Consider snapshotting enrollments per session in future phases.
+
+# TODO (AUTHZ): Visibility currently scoped only by faculty_id.
+# This may need tightening when subject reassignment,
+# academic years, or archival rules are introduced.

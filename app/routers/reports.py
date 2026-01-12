@@ -6,14 +6,10 @@ Provides read-only reporting endpoints for Attendance V3 data.
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, case, and_
 from pydantic import BaseModel
-from datetime import date
-from typing import Optional
-from app.models import User, Student, AttendanceRecordV3, AttendanceSessionV3
-from app.models import RoleEnum
-from sqlalchemy import func, distinct
-from sqlalchemy.sql.functions import user
+from datetime import date, datetime
+from typing import Optional, List
 from app.database import get_db
 from app.models import (
     User,
@@ -22,12 +18,27 @@ from app.models import (
     AttendanceStatusEnum,
     Subject,
     Student,
+    ClassEnrollment,
+    ClassSubject,
     RoleEnum,
 )
 from app.routers.auth import require_role
 from app.services.reports_service import (
     get_attendance_data_for_csv,
     generate_csv_content,
+    get_session_attendance_summary,
+    generate_session_summary_csv,
+    get_global_attendance_report,
+    get_student_attendance_report,
+    get_faculty_student_attendance_report,
+)
+from app.schemas import (
+    SessionAttendanceSummaryV3Response,
+    AttendanceStatsV3,
+    SessionStudentSummaryItemV3,
+    GlobalAttendanceReportResponse,
+    StudentAttendanceReportResponse,
+    FacultyStudentAttendanceReportResponse,
 )
 
 router = APIRouter()
@@ -189,6 +200,91 @@ def get_session_report(
     )
 
 
+# -------------------------------------------------------------------
+# SESSION SUMMARY (Phase 6.2)
+# -------------------------------------------------------------------
+@router.get(
+    "/session/{session_id}/summary",
+    response_model=SessionAttendanceSummaryV3Response,
+    status_code=status.HTTP_200_OK,
+)
+def get_session_attendance_summary_v3(
+    session_id: int,
+    current_user: User = Depends(require_role([RoleEnum.FACULTY, RoleEnum.ADMIN])),
+    db: Session = Depends(get_db),
+):
+    """
+    Get comprehensive attendance summary for a single session (JSON format).
+
+    Returns session metadata, aggregated statistics (present/absent/late/not_marked counts
+    and percentages), and a detailed per-student attendance list. This endpoint is designed
+    for analytics, reporting, and dashboards.
+
+    FACULTY can only access their own sessions. ADMIN can access any session.
+    STUDENT access is forbidden.
+
+    Edge cases handled:
+    - Empty subject enrollment: returns zero counts and empty student list
+    - All students unmarked: returns not_marked_count == total_students
+    - Division by zero: percentages return 0.0 when total_students == 0
+    - Unlocked session: locked_at returns None
+
+    For CSV export, use: GET /api/v3/reports/session/{session_id}/summary/export
+
+    Existing endpoints remain unchanged:
+    - /session/{session_id} - Basic counts without per-student details
+    - /sessions/{session_id}/students - Raw student records for editing
+    """
+    return get_session_attendance_summary(session_id, current_user, db)
+
+
+@router.get("/session/{session_id}/summary/export", status_code=status.HTTP_200_OK)
+def export_session_attendance_summary_csv(
+    session_id: int,
+    current_user: User = Depends(require_role([RoleEnum.FACULTY, RoleEnum.ADMIN])),
+    db: Session = Depends(get_db),
+):
+    """
+    Export session attendance summary as CSV file.
+
+    Returns the same summary data as the JSON endpoint (/session/{session_id}/summary)
+    in CSV format, suitable for Excel and other spreadsheet applications.
+
+    CSV structure:
+    - Session metadata rows (ID, date, subject, faculty, lock status)
+    - Aggregated statistics rows (total students, counts, percentages)
+    - Blank separator row
+    - Student table with header and data rows (code, name, status, marked_at)
+
+    FACULTY can only access their own sessions. ADMIN can access any session.
+    STUDENT access is forbidden.
+
+    Edge cases handled:
+    - Empty subject enrollment: CSV with metadata and zero counts, no student rows
+    - All students unmarked: CSV with empty status fields for all students
+    - Division by zero: percentages show 0.00 when total_students == 0
+    - Unlocked session: locked_at field is empty
+
+    Authorization matches the JSON summary endpoint exactly.
+    Percentages match JSON endpoint exactly (same precision).
+    """
+    # Get summary data from service (handles auth and queries)
+    summary_data = get_session_attendance_summary(session_id, current_user, db)
+
+    # Generate CSV content
+    csv_content = generate_session_summary_csv(summary_data)
+
+    # Return CSV response with proper headers
+    filename = (
+        f"session_{session_id}_attendance_summary_{summary_data.session_date}.csv"
+    )
+    return Response(
+        content=csv_content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.get("/subject/{subject_id}", status_code=status.HTTP_200_OK)
 def get_subject_report(
     subject_id: int,
@@ -322,106 +418,6 @@ def get_subject_report(
         absent_count=absent_count,
         late_count=late_count,
         overall_attendance_percentage=overall_attendance_percentage,
-    )
-
-
-@router.get("/student/{student_id}", status_code=status.HTTP_200_OK)
-def get_student_report(
-    student_id: int,
-    subject_id: Optional[int] = Query(None, description="Optional subject filter"),
-    current_user: User = Depends(require_role([RoleEnum.ADMIN, RoleEnum.FACULTY])),
-    db: Session = Depends(get_db),
-):
-    """
-    Get simple attendance summary for a student.
-    Admin can access any student.
-    Faculty can only access students from their own sessions.
-    """
-
-    # 1️⃣ Fetch Student + linked User
-    student = (
-        db.query(Student)
-        .join(User, Student.user_id == User.id)
-        .filter(Student.id == student_id)
-        .first()
-    )
-
-    if not student:
-        raise HTTPException(status_code=404, detail="Student not found")
-
-    user = student.user  # relationship-backed, clean, explicit
-
-    # 2️⃣ Build base attendance query
-    records_query = (
-        db.query(AttendanceRecordV3)
-        .join(
-            AttendanceSessionV3,
-            AttendanceRecordV3.session_id == AttendanceSessionV3.id,
-        )
-        .filter(AttendanceRecordV3.student_id == student.id)
-    )
-
-    # 3️⃣ Optional subject filter
-    if subject_id:
-        records_query = records_query.filter(
-            AttendanceSessionV3.subject_id == subject_id
-        )
-
-    # 4️⃣ Faculty access restriction
-    if current_user.role == RoleEnum.FACULTY:
-        records_query = records_query.filter(
-            AttendanceSessionV3.faculty_id == current_user.id
-        )
-
-    all_records = records_query.all()
-
-    # 5️⃣ Handle empty records safely
-    if not all_records:
-        if current_user.role == RoleEnum.FACULTY:
-            any_record = (
-                db.query(AttendanceRecordV3)
-                .filter(AttendanceRecordV3.student_id == student.id)
-                .first()
-            )
-            if any_record:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="You can only access students from your own sessions",
-                )
-
-        return StudentReportResponse(
-            student_id=student.id,
-            student_code=student.student_id,
-            full_name=user.full_name,
-            total_sessions=0,
-            present_count=0,
-            absent_count=0,
-            late_count=0,
-            attendance_percentage=0.0,
-        )
-
-    # 6️⃣ Aggregate stats
-    session_ids = {r.session_id for r in all_records}
-    total_sessions = len(session_ids)
-
-    present_count = sum(r.status == AttendanceStatusEnum.PRESENT for r in all_records)
-    absent_count = sum(r.status == AttendanceStatusEnum.ABSENT for r in all_records)
-    late_count = sum(r.status == AttendanceStatusEnum.LATE for r in all_records)
-
-    attendance_percentage = round(
-        ((present_count + late_count) / total_sessions) * 100, 2
-    )
-
-    # 7️⃣ Final response
-    return StudentReportResponse(
-        student_id=student.id,
-        student_code=student.student_id,
-        full_name=user.full_name,
-        total_sessions=total_sessions,
-        present_count=present_count,
-        absent_count=absent_count,
-        late_count=late_count,
-        attendance_percentage=attendance_percentage,
     )
 
 
@@ -576,6 +572,14 @@ def get_defaulters_report(
     return result
 
 
+"""
+Exports raw attendance records as CSV.
+This endpoint provides row-level data for audits and manual analysis.
+For aggregated reports and summaries, use:
+- GET /api/v3/reports/session/{session_id}/summary
+"""
+
+
 @router.get("/export/csv", status_code=status.HTTP_200_OK)
 def export_attendance_csv(
     subject_id: int = Query(..., description="Subject ID (required)"),
@@ -628,4 +632,223 @@ def export_attendance_csv(
         content=csv_content,
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="attendance_report.csv"'},
+    )
+
+
+# -------------------------------------------------------------------
+# ADMIN GLOBAL REPORT (Phase 6.4)
+# -------------------------------------------------------------------
+@router.get(
+    "/admin/global",
+    response_model=GlobalAttendanceReportResponse,
+    status_code=status.HTTP_200_OK,
+)
+def get_global_attendance_report_v3(
+    start_date: Optional[date] = Query(
+        None, description="Start date filter (YYYY-MM-DD)"
+    ),
+    end_date: Optional[date] = Query(None, description="End date filter (YYYY-MM-DD)"),
+    subject_id: Optional[int] = Query(None, description="Optional subject filter"),
+    faculty_id: Optional[int] = Query(None, description="Optional faculty filter"),
+    limit_subjects: int = Query(
+        20, description="Limit for subject breakdown", ge=1, le=100
+    ),
+    limit_faculty: int = Query(
+        20, description="Limit for faculty breakdown", ge=1, le=100
+    ),
+    current_user: User = Depends(require_role([RoleEnum.ADMIN])),
+    db: Session = Depends(get_db),
+):
+    """
+    Get global attendance report with aggregated statistics (ADMIN only).
+
+    Returns high-level aggregated data across the system:
+    - Summary: total sessions, unique students, subjects, faculty
+    - Attendance overview: aggregated counts and marked_percentage
+    - Subject breakdown: top subjects by record count (limited)
+    - Faculty breakdown: top faculty by record count (limited)
+
+    All aggregations are done in SQL using GROUP BY + CASE statements.
+    No per-student data is returned.
+
+    Filters:
+    - start_date: Filter sessions from this date onwards
+    - end_date: Filter sessions up to this date
+    - subject_id: Filter to a specific subject
+    - faculty_id: Filter to a specific faculty
+    - limit_subjects: Maximum subjects in breakdown (default 20, max 100)
+    - limit_faculty: Maximum faculty in breakdown (default 20, max 100)
+
+    marked_percentage calculation:
+    ((present_count + absent_count + late_count) / total_records) * 100
+
+    Returns zeros and empty arrays when no data matches filters (no 404).
+    """
+    return get_global_attendance_report(
+        db=db,
+        start_date=start_date,
+        end_date=end_date,
+        subject_id=subject_id,
+        faculty_id=faculty_id,
+        limit_subjects=limit_subjects,
+        limit_faculty=limit_faculty,
+    )
+
+
+# -------------------------------------------------------------------
+# STUDENT-WISE ATTENDANCE REPORT (Phase 6.5)
+# -------------------------------------------------------------------
+@router.get(
+    "/student/{student_id}",
+    response_model=StudentAttendanceReportResponse,
+    status_code=status.HTTP_200_OK,
+)
+def get_student_attendance_report_v3(
+    student_id: int,
+    start_date: Optional[date] = Query(
+        None, description="Start date filter (YYYY-MM-DD)"
+    ),
+    end_date: Optional[date] = Query(None, description="End date filter (YYYY-MM-DD)"),
+    subject_id: Optional[int] = Query(None, description="Optional subject filter"),
+    limit_subjects: Optional[int] = Query(
+        20, description="Limit for subject breakdown", ge=1, le=100
+    ),
+    current_user: User = Depends(require_role([RoleEnum.ADMIN, RoleEnum.STUDENT])),
+    db: Session = Depends(get_db),
+):
+    """
+    Get student-wise attendance report with aggregated statistics.
+
+    Returns student information, overall attendance summary, and per-subject breakdown.
+    All aggregations are done in SQL using GROUP BY + CASE statements.
+
+    Authorization:
+    - ADMIN: Can access any student's report
+    - STUDENT: Can only access their own report (student_id must match current_user.student_profile.id)
+    - FACULTY: Not allowed
+
+    Filters:
+    - start_date: Filter sessions from this date onwards
+    - end_date: Filter sessions up to this date
+    - subject_id: Filter to a specific subject
+    - limit_subjects: Maximum subjects in breakdown (default 20, max 100)
+
+    attendance_percentage calculation:
+    ((present_count + absent_count + late_count) / total_sessions) * 100
+
+    Late counts as attended for percentage calculation.
+
+    Returns 404 if student not found.
+    Returns 403 if STUDENT tries to access another student's report.
+    Returns 400 if start_date > end_date.
+    """
+    # 1. STUDENT role authorization check
+    if current_user.role == RoleEnum.STUDENT:
+        # Check if student_profile exists
+        if current_user.student_profile is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Student profile not found",
+            )
+        # Check if accessing own student_id
+        if current_user.student_profile.id != student_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only access your own attendance report",
+            )
+
+    # 2. Date range validation
+    if start_date and end_date:
+        if start_date > end_date:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="start_date must be less than or equal to end_date",
+            )
+
+    # 3. Call service function
+    return get_student_attendance_report(
+        db=db,
+        student_id=student_id,
+        start_date=start_date,
+        end_date=end_date,
+        subject_id=subject_id,
+        limit_subjects=limit_subjects,
+    )
+
+
+# -------------------------------------------------------------------
+# FACULTY-SCOPED STUDENT ATTENDANCE REPORT (Phase 6.6)
+# -------------------------------------------------------------------
+@router.get(
+    "/faculty/student/{student_id}",
+    response_model=FacultyStudentAttendanceReportResponse,
+    status_code=status.HTTP_200_OK,
+)
+def get_faculty_student_attendance_report_v3(
+    student_id: int,
+    start_date: Optional[date] = Query(
+        None, description="Start date filter (YYYY-MM-DD)"
+    ),
+    end_date: Optional[date] = Query(None, description="End date filter (YYYY-MM-DD)"),
+    subject_id: Optional[int] = Query(None, description="Optional subject filter"),
+    limit_subjects: int = Query(
+        20, description="Limit for subject breakdown", ge=1, le=100
+    ),
+    current_user: User = Depends(require_role([RoleEnum.ADMIN, RoleEnum.FACULTY])),
+    db: Session = Depends(get_db),
+):
+    """
+    Get faculty-scoped student attendance report with aggregated statistics.
+
+    Returns student information, overall attendance summary, and per-subject breakdown.
+    All aggregations are done in SQL using GROUP BY + CASE statements.
+
+    Authorization:
+    - ADMIN: Global visibility across all faculty (unrestricted access to all faculty sessions)
+    - FACULTY: Strictly scoped to their own sessions (AttendanceSessionV3.faculty_id == current_user.id)
+    - STUDENT: Not allowed (403 Forbidden)
+
+    Filters:
+    - start_date: Filter sessions from this date onwards
+    - end_date: Filter sessions up to this date
+    - subject_id: Filter to a specific subject
+    - limit_subjects: Maximum subjects in breakdown (default 20, max 100)
+
+    attendance_percentage calculation:
+    ((present_count + absent_count + late_count) / total_sessions) * 100
+
+    attendance_percentage represents attendance coverage/participation completeness,
+    not attendance quality. Late counts as attended for percentage calculation.
+
+    Edge cases:
+    - Non-existent student → 404 Not Found
+    - Invalid date range (start_date > end_date) → 400 Bad Request
+    - STUDENT role → 403 Forbidden (router-level authorization)
+    - Faculty never taught student → 200 OK with zeros (intentional usability decision)
+    - Empty results → 200 OK with empty arrays (not 404)
+    """
+    # 1. Date range validation
+    if start_date and end_date:
+        if start_date > end_date:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="start_date must be less than or equal to end_date",
+            )
+
+    # 2. Determine faculty_id based on role
+    # ADMIN: faculty_id=None means unrestricted access (all faculty sessions)
+    # FACULTY: faculty_id=current_user.id means scoped to their own sessions
+    faculty_id = None
+    if current_user.role == RoleEnum.FACULTY:
+        faculty_id = current_user.id
+
+    # 3. Call service function
+    return get_faculty_student_attendance_report(
+        db=db,
+        student_id=student_id,
+        faculty_id=faculty_id,
+        start_date=start_date,
+        end_date=end_date,
+        subject_id=subject_id,
+        limit_subjects=limit_subjects,
     )

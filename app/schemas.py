@@ -316,3 +316,258 @@ class StudentAttendanceRecordV3Response(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# Phase 6.2 - Session Attendance Summary Response Schemas
+class AttendanceStatsV3(BaseModel):
+    """Aggregated attendance statistics for a session."""
+
+    present_count: int
+    absent_count: int
+    late_count: int
+    not_marked_count: int  # Students with no attendance record
+    present_percentage: (
+        float  # (present_count / total_students) * 100, or 0.0 if total_students == 0
+    )
+    marked_percentage: float  # ((present + absent + late) / total_students) * 100, or 0.0 if total_students == 0
+
+    class Config:
+        from_attributes = True
+
+
+class SessionStudentSummaryItemV3(BaseModel):
+    """Individual student attendance item within session summary."""
+
+    student_id: int
+    student_code: str
+    student_name: str
+    attendance_status: Optional[AttendanceStatusEnum]  # None if not marked
+    marked_at: Optional[datetime]  # None if not marked
+
+    class Config:
+        from_attributes = True
+
+
+class SessionAttendanceSummaryV3Response(BaseModel):
+    """Session-wise attendance summary with aggregated statistics."""
+
+    # Session metadata
+    session_id: int
+    session_date: date
+    is_locked: bool
+    locked_at: Optional[datetime]  # Can be None if session is not locked
+
+    # Subject information
+    subject_id: int
+    subject_code: str
+    subject_name: str
+
+    # Faculty information
+    faculty_id: int
+    faculty_name: str
+
+    # Aggregated statistics
+    total_students: int  # Total enrolled students for this subject
+    attendance_stats: AttendanceStatsV3
+
+    # Per-student list
+    students: List[SessionStudentSummaryItemV3]
+
+    class Config:
+        from_attributes = True
+
+
+# Phase 6.4 - Admin Global Attendance Report Schemas
+class DateRangeSchema(BaseModel):
+    """Date range schema for global report."""
+
+    start_date: Optional[date]
+    end_date: Optional[date]
+
+    class Config:
+        from_attributes = True
+
+
+class GlobalSummarySchema(BaseModel):
+    """Summary schema for global attendance report."""
+
+    total_sessions: int
+    unique_students_count: int
+    total_subjects: int
+    total_faculty: int
+    date_range: DateRangeSchema
+
+    class Config:
+        from_attributes = True
+
+
+class AttendanceOverviewSchema(BaseModel):
+    """Attendance overview schema for global report."""
+
+    total_records: int
+    present_count: int
+    absent_count: int
+    late_count: int
+    marked_percentage: float  # ((present + absent + late) / total_records) * 100
+
+    class Config:
+        from_attributes = True
+
+
+class SubjectBreakdownItemSchema(BaseModel):
+    """Subject breakdown item schema for global report."""
+
+    subject_id: int
+    subject_code: str
+    subject_name: str
+    total_sessions: int
+    total_records: int
+    present_count: int
+    absent_count: int
+    late_count: int
+    marked_percentage: float  # ((present + absent + late) / total_records) * 100
+
+    class Config:
+        from_attributes = True
+
+
+class FacultyBreakdownItemSchema(BaseModel):
+    """Faculty breakdown item schema for global report."""
+
+    faculty_id: int
+    faculty_name: str
+    total_sessions: int
+    total_records: int
+    present_count: int
+    absent_count: int
+    late_count: int
+    marked_percentage: float  # ((present + absent + late) / total_records) * 100
+
+    class Config:
+        from_attributes = True
+
+
+class GlobalAttendanceReportResponse(BaseModel):
+    """Global attendance report response schema (ADMIN only)."""
+
+    summary: GlobalSummarySchema
+    attendance_overview: AttendanceOverviewSchema
+    subject_breakdown: List[SubjectBreakdownItemSchema]
+    faculty_breakdown: List[FacultyBreakdownItemSchema]
+
+    class Config:
+        from_attributes = True
+
+
+# Phase 6.5 - Student-wise Attendance Report Schemas
+class StudentInfoSchema(BaseModel):
+    """Student information schema for student attendance report."""
+
+    student_id: int
+    student_code: str
+    student_name: str
+
+    class Config:
+        from_attributes = True
+
+
+class StudentSummarySchema(BaseModel):
+    """Summary schema for student attendance report."""
+
+    total_sessions: int
+    present_count: int
+    absent_count: int
+    late_count: int
+    attendance_percentage: float  # ((present + absent + late) / total_sessions) * 100
+
+    class Config:
+        from_attributes = True
+
+
+class StudentSubjectBreakdownSchema(BaseModel):
+    """Subject breakdown item schema for student attendance report."""
+
+    subject_id: int
+    subject_code: str
+    subject_name: str
+    total_sessions: int
+    present_count: int
+    absent_count: int
+    late_count: int
+    attendance_percentage: float  # ((present + absent + late) / total_sessions) * 100
+
+    class Config:
+        from_attributes = True
+
+
+class StudentAttendanceReportResponse(BaseModel):
+    """Student attendance report response schema."""
+
+    student: StudentInfoSchema
+    summary: StudentSummarySchema
+    subject_breakdown: List[StudentSubjectBreakdownSchema]
+
+    class Config:
+        from_attributes = True
+
+
+# Phase 6.6 - Faculty-Scoped Student Attendance Report Schemas
+class FacultyStudentInfoSchema(BaseModel):
+    """Student information schema for faculty-scoped student attendance report."""
+
+    student_id: int
+    student_code: str
+    student_name: str
+
+    class Config:
+        from_attributes = True
+
+
+class FacultyStudentSummarySchema(BaseModel):
+    """Summary schema for faculty-scoped student attendance report.
+    
+    attendance_percentage represents attendance coverage/participation completeness,
+    not attendance quality. Late counts as attended.
+    Formula: ((present + absent + late) / total_sessions) * 100
+    """
+
+    total_sessions: int
+    present_count: int
+    absent_count: int
+    late_count: int
+    attendance_percentage: float  # ((present + absent + late) / total_sessions) * 100
+
+    class Config:
+        from_attributes = True
+
+
+class FacultyStudentSubjectBreakdownSchema(BaseModel):
+    """Subject breakdown item schema for faculty-scoped student attendance report.
+    
+    attendance_percentage represents attendance coverage/participation completeness,
+    not attendance quality. Late counts as attended.
+    Formula: ((present + absent + late) / total_sessions) * 100
+    """
+
+    subject_id: int
+    subject_code: str
+    subject_name: str
+    total_sessions: int
+    present_count: int
+    absent_count: int
+    late_count: int
+    attendance_percentage: float  # ((present + absent + late) / total_sessions) * 100
+
+    class Config:
+        from_attributes = True
+
+
+class FacultyStudentAttendanceReportResponse(BaseModel):
+    """Faculty-scoped student attendance report response schema."""
+
+    student: FacultyStudentInfoSchema
+    summary: FacultyStudentSummarySchema
+    subject_breakdown: List[FacultyStudentSubjectBreakdownSchema]
+
+    class Config:
+        from_attributes = True
