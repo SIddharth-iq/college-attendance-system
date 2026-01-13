@@ -108,6 +108,11 @@ View attendance of a specific student scoped to logged-in faculty.
   - present_count
   - absent_count
 
+Note:
+Faculty dashboard is student-centric.
+There is no global faculty dashboard endpoint.
+Faculty workflows are drill-down based (student/session scoped).
+
 ---
 
 ### 2. Session Summary (Faculty)
