@@ -302,7 +302,36 @@ def seed():
         session_date=date(2026, 1, 3),
         defaults={"is_locked": True},
     )
+    # --------------------
+    # ATTENDANCE SESSION FOR CS102 BY FACULTY2 (CROSS-FACULTY TEST)
+    # --------------------
+    session4 = get_or_create(
+        db,
+        AttendanceSessionV3,
+        subject_id=subject2.id,
+        faculty_id=faculty2.id,  # faculty2 MUST have sessions
+        session_date=date(2026, 1, 4),
+        defaults={"is_locked": True},
+    )
 
+    # --------------------
+    # ATTENDANCE RECORDS FOR SESSION4
+    # --------------------
+    get_or_create(
+        db,
+        AttendanceRecordV3,
+        session_id=session4.id,
+        student_id=student1_profile.id,  # SAME STUDENT as other faculty
+        defaults={"status": AttendanceStatusEnum.ABSENT},
+    )
+
+    get_or_create(
+        db,
+        AttendanceRecordV3,
+        session_id=session4.id,
+        student_id=student2_profile.id,
+        defaults={"status": AttendanceStatusEnum.PRESENT},
+    )
     # --------------------
     # ATTENDANCE RECORDS FOR SESSION3
     # --------------------
