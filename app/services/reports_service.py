@@ -979,8 +979,9 @@ def get_student_attendance_report(
     # Calculate attendance_percentage: ((present + absent + late) / total_sessions) * 100
     if total_sessions > 0:
         attendance_percentage = round(
-            ((present_count + absent_count + late_count) / total_sessions) * 100, 2
+            ((present_count + late_count) / total_sessions) * 100, 2
         )
+
     else:
         attendance_percentage = 0.0
 
@@ -1065,9 +1066,10 @@ def get_student_attendance_report(
 
         if subj_total_sessions > 0:
             subj_attendance_percentage = round(
-                ((subj_present + subj_absent + subj_late) / subj_total_sessions) * 100,
+                ((subj_present + subj_late) / subj_total_sessions) * 100,
                 2,
             )
+
         else:
             subj_attendance_percentage = 0.0
 
@@ -1216,8 +1218,9 @@ def get_faculty_student_attendance_report(
     # Calculate attendance_percentage: ((present + absent + late) / total_sessions) * 100
     if total_sessions > 0:
         attendance_percentage = round(
-            ((present_count + absent_count + late_count) / total_sessions) * 100, 2
+            ((present_count + late_count) / total_sessions) * 100, 2
         )
+
     else:
         attendance_percentage = 0.0
 
@@ -1308,9 +1311,10 @@ def get_faculty_student_attendance_report(
 
         if subj_total_sessions > 0:
             subj_attendance_percentage = round(
-                ((subj_present + subj_absent + subj_late) / subj_total_sessions) * 100,
+                ((subj_present + subj_late) / subj_total_sessions) * 100,
                 2,
             )
+
         else:
             subj_attendance_percentage = 0.0
 

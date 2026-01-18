@@ -3,8 +3,7 @@ Authentication and authorization utilities.
 Handles role-based access control (RBAC) for API endpoints.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User, RoleEnum
@@ -19,7 +18,6 @@ from passlib.context import (
 )  # Simple password hashing (use bcrypt in production)
 
 router = APIRouter()
-security = HTTPBearer()
 from fastapi import Header
 
 
@@ -102,21 +100,39 @@ def decode_access_token(token: str) -> dict:
         )
 
 
-security = HTTPBearer()
-
-
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
     db: Session = Depends(get_db),
 ) -> User:
-    token = credentials.credentials
+    # 1. Read token from cookie
+    token = request.cookies.get("access_token")
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+
+    # 2. Decode token
     payload = decode_access_token(token)
     user_id = payload.get("sub")
+
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        )
+
+    # 3. Fetch user
     user = (
         db.query(User).filter(User.id == int(user_id), User.is_active == True).first()
     )
+
     if not user:
-        raise HTTPException(status_code=401, detail="User not found")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
 
     return user
 
@@ -153,7 +169,7 @@ require_any_authenticated = Depends(get_current_user)
 
 
 @router.post("/login", response_model=TokenResponse, status_code=status.HTTP_200_OK)
-def login(login_data: LoginRequest, db: Session = Depends(get_db)):
+def login(login_data: LoginRequest, response: Response, db: Session = Depends(get_db)):
     """
     Login endpoint - authenticates user and returns JWT access token.
 
@@ -189,7 +205,29 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     # Create access token with user id as subject
     access_token = create_access_token(data={"sub": str(user.id)})
 
+    response.set_cookie(
+        key="access_token", value=access_token, httponly=True, samesite="lax"
+    )
     return TokenResponse(access_token=access_token, token_type="Bearer")
+
+
+from fastapi import Depends, status
+from sqlalchemy.orm import Session
+
+
+@router.get("/me", status_code=status.HTTP_200_OK)
+def get_me(current_user: User = Depends(get_current_user)):
+    """
+    Get currently authenticated user.
+
+    Returns basic user info for frontend auth context.
+    """
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "role": current_user.role,
+        "full_name": current_user.full_name,
+    }
 
 
 @router.get("/ping")

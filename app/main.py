@@ -59,7 +59,7 @@ async def health_check():
 # --------------------------------------------------
 # ROUTERS (ONLY ONE ATTENDANCE SYSTEM)
 # --------------------------------------------------
-app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
+app.include_router(auth.router, prefix="/api/v3/auth", tags=["Authentication"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 
 # ✅ V3 ATTENDANCE (ONLY)

@@ -699,12 +699,11 @@ def get_global_attendance_report_v3(
 # STUDENT-WISE ATTENDANCE REPORT (Phase 6.5)
 # -------------------------------------------------------------------
 @router.get(
-    "/student/{student_id}",
+    "/student/me",
     response_model=StudentAttendanceReportResponse,
     status_code=status.HTTP_200_OK,
 )
 def get_student_attendance_report_v3(
-    student_id: int,
     start_date: Optional[date] = Query(
         None, description="Start date filter (YYYY-MM-DD)"
     ),
@@ -713,7 +712,7 @@ def get_student_attendance_report_v3(
     limit_subjects: Optional[int] = Query(
         20, description="Limit for subject breakdown", ge=1, le=100
     ),
-    current_user: User = Depends(require_role([RoleEnum.ADMIN, RoleEnum.STUDENT])),
+    current_user: User = Depends(require_role([RoleEnum.STUDENT])),
     db: Session = Depends(get_db),
 ):
     """
@@ -742,20 +741,14 @@ def get_student_attendance_report_v3(
     Returns 403 if STUDENT tries to access another student's report.
     Returns 400 if start_date > end_date.
     """
-    # 1. STUDENT role authorization check
-    if current_user.role == RoleEnum.STUDENT:
-        # Check if student_profile exists
-        if current_user.student_profile is None:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Student profile not found",
-            )
-        # Check if accessing own student_id
-        if current_user.student_profile.id != student_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You can only access your own attendance report",
-            )
+
+    student = current_user.student_profile
+
+    if not student:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Student profile not found",
+        )
 
     # 2. Date range validation
     if start_date and end_date:
@@ -768,7 +761,7 @@ def get_student_attendance_report_v3(
     # 3. Call service function
     return get_student_attendance_report(
         db=db,
-        student_id=student_id,
+        student_id=student.id,
         start_date=start_date,
         end_date=end_date,
         subject_id=subject_id,
@@ -815,7 +808,8 @@ def get_faculty_student_attendance_report_v3(
     - limit_subjects: Maximum subjects in breakdown (default 20, max 100)
 
     attendance_percentage calculation:
-    ((present_count + absent_count + late_count) / total_sessions) * 100
+    ((present_count + late_count) / total_sessions) * 100
+
 
     attendance_percentage represents attendance coverage/participation completeness,
     not attendance quality. Late counts as attended for percentage calculation.
