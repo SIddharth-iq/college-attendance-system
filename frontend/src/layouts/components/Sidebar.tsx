@@ -51,12 +51,14 @@ export const Sidebar = ({ isMobileOpen, onMobileClose, onCollapseChange }: Sideb
 
       {/* Sidebar */}
       <aside
-        className={`fixed left-0 top-16 bottom-0 bg-white border-r z-40 transition-all duration-300 ${
-          isMobileOpen ? "translate-x-0" : "-translate-x-full"
-        } md:translate-x-0 md:block hidden ${
-          isCollapsed ? "md:w-16" : "md:w-64"
-        } w-64`}
+        className={`fixed left-0 top-16 bottom-0 bg-white border-r z-50
+        transform transition-transform duration-300
+        ${isMobileOpen ? "translate-x-0" : "-translate-x-full"}
+        md:translate-x-0 md:static md:block
+        ${isCollapsed ? "md:w-16" : "md:w-64"}
+        w-64`}
       >
+
         <div className="h-full flex flex-col">
           {/* Collapse button (desktop only) */}
           <div className="hidden md:flex justify-end p-2 border-b">
