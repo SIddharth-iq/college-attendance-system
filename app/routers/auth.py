@@ -230,6 +230,11 @@ def get_me(current_user: User = Depends(get_current_user)):
     }
 
 
+@router.post("/logout", status_code=204)
+def logout(response: Response):
+    response.delete_cookie("access_token")
+
+
 @router.get("/ping")
 def auth_ping():
     return {"auth": "ok"}

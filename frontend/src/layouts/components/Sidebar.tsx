@@ -5,9 +5,11 @@ import { SidebarItem } from "./SidebarItem";
 
 interface SidebarProps {
   isMobileOpen: boolean;
+  isCollapsed: boolean;
   onMobileClose: () => void;
-  onCollapseChange?: (isCollapsed: boolean) => void;
+  onCollapseChange: (isCollapsed: boolean) => void;
 }
+
 
 export const Sidebar = ({ isMobileOpen, onMobileClose, onCollapseChange }: SidebarProps) => {
   const { role } = useAuth();

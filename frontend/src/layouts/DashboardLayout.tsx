@@ -27,17 +27,18 @@ export const DashboardLayout = ({ children }: DashboardLayoutProps) => {
       <Topbar onMobileMenuToggle={handleMobileToggle} />
       
       <div className="flex flex-1 pt-16">
-        <Sidebar 
-          isMobileOpen={isMobileOpen} 
-          onMobileClose={handleMobileClose}
-          onCollapseChange={handleCollapseChange}
-        />
+      <Sidebar
+  isMobileOpen={isMobileOpen}
+  isCollapsed={isSidebarCollapsed}
+  onMobileClose={handleMobileClose}
+  onCollapseChange={handleCollapseChange}
+/>
+
         
-        <main className={`flex-1 overflow-y-auto transition-all duration-300 ${
-          isSidebarCollapsed ? "md:ml-16" : "md:ml-64"
-        }`}>
-          <div className="p-6">{children}</div>
-        </main>
+        <main className="flex-1 overflow-y-auto pt-16">
+  <div className="p-6">{children}</div>
+</main>
+
       </div>
     </div>
   );

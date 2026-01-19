@@ -1,10 +1,9 @@
 import { useState, useRef, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/useAuth";
+import api from "../../api/axios";
 
 export const UserMenu = () => {
   const { user } = useAuth();
-  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -24,9 +23,14 @@ export const UserMenu = () => {
     };
   }, [isOpen]);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setIsOpen(false);
-    navigate("/login");
+    try {
+      await api.post("/auth/logout");
+    } catch {
+      // even if it fails, continue
+    }
+    window.location.href = "/login";
   };
 
   if (!user) {
@@ -34,6 +38,7 @@ export const UserMenu = () => {
   }
 
   const displayName = user.name || user.username;
+  
 
   return (
     <div className="relative" ref={menuRef}>

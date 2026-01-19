@@ -24,7 +24,7 @@ const handleLogin = async () => {
 
     if (response.status === 200) {
       await refetchAuth();
-      navigate("/student/dashboard");
+      navigate("/dashboard");
       return;
     }
 
