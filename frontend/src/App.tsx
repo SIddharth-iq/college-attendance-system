@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Dashboard from "./pages/Dashboard";
+import Attendance from "./pages/student/Attendance";
 import Login from "./pages/Login";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 
@@ -14,6 +15,15 @@ function App() {
           element={
             <ProtectedRoute>
               <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/attendance"
+          element={
+            <ProtectedRoute requiredRole="STUDENT">
+              <Attendance />
             </ProtectedRoute>
           }
         />
