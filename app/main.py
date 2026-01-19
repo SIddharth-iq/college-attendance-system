@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
-from app.routers import auth, admin, attendance_v3, reports
+from app.routers import auth, admin, attendance_v3, reports, classes
 
 # --------------------------------------------------
 # Initialize FastAPI app
@@ -74,4 +74,9 @@ app.include_router(
     reports.router,
     prefix="/api/v3/reports",
     tags=["Reports V3"],
+)
+app.include_router(
+    classes.router,
+    prefix="/api/v3/classes",
+    tags=["Classes V3"],
 )

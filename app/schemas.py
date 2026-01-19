@@ -525,7 +525,7 @@ class FacultyStudentInfoSchema(BaseModel):
 
 class FacultyStudentSummarySchema(BaseModel):
     """Summary schema for faculty-scoped student attendance report.
-    
+
     attendance_percentage represents attendance coverage/participation completeness,
     not attendance quality. Late counts as attended.
     Formula: ((present + absent + late) / total_sessions) * 100
@@ -543,7 +543,7 @@ class FacultyStudentSummarySchema(BaseModel):
 
 class FacultyStudentSubjectBreakdownSchema(BaseModel):
     """Subject breakdown item schema for faculty-scoped student attendance report.
-    
+
     attendance_percentage represents attendance coverage/participation completeness,
     not attendance quality. Late counts as attended.
     Formula: ((present + absent + late) / total_sessions) * 100
@@ -568,6 +568,25 @@ class FacultyStudentAttendanceReportResponse(BaseModel):
     student: FacultyStudentInfoSchema
     summary: FacultyStudentSummarySchema
     subject_breakdown: List[FacultyStudentSubjectBreakdownSchema]
+
+    class Config:
+        from_attributes = True
+
+
+# Add to app/schemas.py (at the end)
+
+
+class FacultyClassResponse(BaseModel):
+    """Response schema for faculty class assignment."""
+
+    class_id: int
+    class_code: str
+    class_name: str
+    academic_year: str
+    subject_id: int
+    subject_code: str
+    subject_name: str
+    student_count: Optional[int] = None
 
     class Config:
         from_attributes = True
