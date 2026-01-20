@@ -8,6 +8,7 @@ from typing import Optional, List
 from datetime import date, datetime
 from app.models import RoleEnum, AttendanceStatusEnum
 from sqlalchemy.exc import IntegrityError
+from typing import Optional
 
 
 # User Schemas
@@ -573,11 +574,22 @@ class FacultyStudentAttendanceReportResponse(BaseModel):
         from_attributes = True
 
 
-# Add to app/schemas.py (at the end)
+# Phase 9.2 - Class Subject Students Schemas
+class ClassStudentResponse(BaseModel):
+    """Student information schema for class-subject students list."""
+
+    student_id: int
+    student_code: str
+    full_name: str
+    email: str
+    enrollment_date: date
+
+    class Config:
+        from_attributes = True
 
 
 class FacultyClassResponse(BaseModel):
-    """Response schema for faculty class assignment."""
+    """Response schema for faculty classes list (Phase 9.1)."""
 
     class_id: int
     class_code: str
@@ -587,6 +599,32 @@ class FacultyClassResponse(BaseModel):
     subject_code: str
     subject_name: str
     student_count: Optional[int] = None
+
+    class Config:
+        from_attributes = True
+
+
+class ClassSubjectDetailsResponse(BaseModel):
+    """Class-subject details schema."""
+
+    class_subject_id: int
+    class_id: int
+    class_code: str
+    class_name: str
+    academic_year: str
+    subject_id: int
+    subject_code: str
+    subject_name: str
+
+    class Config:
+        from_attributes = True
+
+
+class ClassSubjectStudentsResponse(BaseModel):
+    """Response schema for class-subject students endpoint."""
+
+    class_subject: ClassSubjectDetailsResponse
+    students: List[ClassStudentResponse]
 
     class Config:
         from_attributes = True
